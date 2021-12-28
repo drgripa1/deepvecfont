@@ -251,8 +251,7 @@ def process_s1(process_id, chars_per_process, args):
     svg_path = os.path.join('experiments', args.experiment_name + '_main_model/results/', '%04d'%int(args.fontid), 'svgs')
     imghr_path = os.path.join('experiments', args.experiment_name + '_main_model/results/', '%04d'%int(args.fontid), 'imgs_256')
     svg_outpath = os.path.join('experiments', args.experiment_name + '_main_model/results/', '%04d'%int(args.fontid), 'svgs_bestcand')
-    if not os.path.exists(svg_outpath):
-        os.mkdir(svg_outpath)
+    os.makedirs(svg_outpath, exist_ok=True)
 
     for i in range(process_id * chars_per_process, (process_id + 1) * chars_per_process):
         if i >= args.num_chars:
@@ -287,8 +286,7 @@ def process_s2(process_id, chars_per_process, args):
     imghr_path = os.path.join('experiments', args.experiment_name + '_main_model/results/', '%04d'%int(args.fontid), 'imgs_256')
     svg_cdt_path = os.path.join('experiments', args.experiment_name + '_main_model/results/', '%04d'%int(args.fontid), 'svgs_bestcand')
     svg_outpath = os.path.join('experiments', args.experiment_name + '_main_model/results/', '%04d'%int(args.fontid), 'svgs_refined')
-    if not os.path.exists(svg_outpath):
-        os.mkdir(svg_outpath)
+    os.makedirs(svg_outpath, exist_ok=True)
     
     for i in range(process_id * chars_per_process, (process_id + 1) * chars_per_process):
         if i >= args.num_chars:

@@ -60,7 +60,7 @@ def train_main_model(opts):
                                          ff_dropout_p=opts.ff_dropout, rec_dropout_p=opts.rec_dropout, input_nc = 2 * opts.hidden_size, 
                                          output_nc=1, ngf=16, bottleneck_bits=opts.bottleneck_bits, norm_layer=nn.LayerNorm, mode='test')
 
-    neural_rasterizer_fpath = os.path.join("./experiments/dvf_neural_raster/checkpoints/neural_raster_350.nr.pth")
+    neural_rasterizer_fpath = os.path.join("./experiments/dvf_800_neural_raster/checkpoints/neural_raster_100.nr.pth")
     neural_rasterizer.load_state_dict(torch.load(neural_rasterizer_fpath))
     neural_rasterizer.eval()
 
@@ -98,105 +98,118 @@ def train_main_model(opts):
     for epoch in range(opts.init_epoch, opts.n_epochs):
         for idx, data in enumerate(train_loader):
             # network forward for a batch of data
-            img_decoder_out, vggpt_loss, kl_loss, svg_losses, trg_img, ref_img, trgsvg_nr_out, synsvg_nr_out =\
-                network_forward(data, mean, std, opts, network_modules)
-            if opts.use_nr:
-                loss = opts.l1_loss_w * img_decoder_out['img_l1loss'] + opts.pt_c_loss_w * vggpt_loss['pt_c_loss']  + opts.kl_beta * kl_loss \
-                        + opts.mdn_loss_w * svg_losses['mdn_loss'] + opts.softmax_loss_w * svg_losses['softmax_xent_loss'] + opts.l1_loss_w * synsvg_nr_out['rec_loss']
-            else:
-                loss = opts.l1_loss_w * img_decoder_out['img_l1loss'] + opts.pt_c_loss_w * vggpt_loss['pt_c_loss']  + opts.kl_beta * kl_loss \
-                        + opts.mdn_loss_w * svg_losses['mdn_loss'] + opts.softmax_loss_w * svg_losses['softmax_xent_loss']
-            output_img = img_decoder_out['gen_imgs']
-            img_l1loss = img_decoder_out['img_l1loss']
-            mdn_loss, softmax_xent_loss = svg_losses['mdn_loss'], svg_losses['softmax_xent_loss']
-            # perform optimization
-            optimizer.zero_grad()
-            loss.backward()       
-            optimizer.step()
-            batches_done = epoch * len(train_loader) + idx + 1 
-
-            message = (
-                f"Epoch: {epoch}/{opts.n_epochs}, Batch: {idx}/{len(train_loader)}, "
-                f"Loss: {loss.item():.6f}, "
-                f"img_l1_loss: {img_l1loss.item():.6f}, "
-                f"kl_loss: {opts.kl_beta * kl_loss.item():.6f}, "
-                f"img_pt_c_loss: {opts.pt_c_loss_w * vggpt_loss['pt_c_loss']:.6f}, "
-                # f"img_pt_s_loss: {vggpt_loss['pt_s_loss']:.6f}, "
-                f"mdn_loss: {mdn_loss.item():.6f}, "
-                f"softmax_xent_loss: {softmax_xent_loss.item():.6f}, "
-                f"synsvg_nr_recloss: {synsvg_nr_out['rec_loss'].item():.6f}"
-            )
+            input_image = data['rendered'].to(device)
+            input_sequence = data['sequence'].to(device)
+            input_clss = data['class'].to(device)
+            input_seqlen = data['seq_len'].to(device)
             
-            if batches_done % 50 == 0:
-                logfile.write(message + '\n')
-                print(message)
-                if opts.tboard:
-                    writer.add_scalar('Loss/loss', loss.item(), batches_done)
-                    writer.add_scalar('Loss/img_l1_loss', img_l1loss.item(), batches_done)
-                    writer.add_scalar('Loss/img_kl_loss', opts.kl_beta * kl_loss.item(), batches_done)
-                    writer.add_scalar('Loss/img_perceptual_loss', opts.pt_c_loss_w * vggpt_loss['pt_c_loss'], batches_done)
-                    writer.add_scalar('Loss/cmd_softmax_loss', softmax_xent_loss.item(), batches_done)
-                    writer.add_scalar('Loss/coord_mdn_loss', mdn_loss.item(), batches_done)
-                    writer.add_scalar('Loss/synsvg_nr_rec_loss', synsvg_nr_out['rec_loss'].item(), batches_done)
-                    writer.add_image('Images/trg_img', trg_img[0], batches_done)
-                    writer.add_image('Images/trgsvg_nr_img', trgsvg_nr_out['gen_imgs'][0], batches_done)
-                    writer.add_image('Images/synsvg_nr_img', synsvg_nr_out['gen_imgs'][0], batches_done)
-                    writer.add_image('Images/output_img', output_img[0], batches_done)
-                    '''
-                    for img_idx in range(52):
-                        writer.add_image('Images/src_img_' + "%02d"%img_idx, ref_img[0,img_idx:img_idx+1,:,:], batches_done)
-                    '''
+            trg_cls_all = torch.stack([torch.randperm(opts.char_categories) for _ in range(input_image.size(0))], dim=1).unsqueeze(-1).to(device) # char_cat, bs, 1
+            for step, trg_cls in enumerate(trg_cls_all):
+                img_decoder_out, vggpt_loss, kl_loss, svg_losses, trg_img, ref_img, trgsvg_nr_out, synsvg_nr_out =\
+                    network_forward(input_image, input_sequence, input_clss, input_seqlen, trg_cls, mean, std, opts, network_modules)
+                if opts.use_nr:
+                    loss = opts.l1_loss_w * img_decoder_out['img_l1loss'] + opts.pt_c_loss_w * vggpt_loss['pt_c_loss']  + opts.kl_beta * kl_loss \
+                            + opts.mdn_loss_w * svg_losses['mdn_loss'] + opts.softmax_loss_w * svg_losses['softmax_xent_loss'] + opts.l1_loss_w * synsvg_nr_out['rec_loss']
+                else:
+                    loss = opts.l1_loss_w * img_decoder_out['img_l1loss'] + opts.pt_c_loss_w * vggpt_loss['pt_c_loss']  + opts.kl_beta * kl_loss \
+                            + opts.mdn_loss_w * svg_losses['mdn_loss'] + opts.softmax_loss_w * svg_losses['softmax_xent_loss']
+                output_img = img_decoder_out['gen_imgs']
+                img_l1loss = img_decoder_out['img_l1loss']
+                mdn_loss, softmax_xent_loss = svg_losses['mdn_loss'], svg_losses['softmax_xent_loss']
+                # perform optimization
+                optimizer.zero_grad()
+                loss.backward()       
+                optimizer.step()
+                batches_done = epoch * len(train_loader) * opts.char_categories + idx * opts.char_categories + step + 1 
 
-            if opts.sample_freq > 0 and batches_done % opts.sample_freq == 0:
+                message = (
+                    f"Epoch: {epoch}/{opts.n_epochs}, Batch: {idx * opts.char_categories + step}/{len(train_loader) * opts.char_categories}, "
+                    f"Loss: {loss.item():.6f}, "
+                    f"img_l1_loss: {img_l1loss.item():.6f}, "
+                    f"kl_loss: {opts.kl_beta * kl_loss.item():.6f}, "
+                    f"img_pt_c_loss: {opts.pt_c_loss_w * vggpt_loss['pt_c_loss']:.6f}, "
+                    # f"img_pt_s_loss: {vggpt_loss['pt_s_loss']:.6f}, "
+                    f"mdn_loss: {mdn_loss.item():.6f}, "
+                    f"softmax_xent_loss: {softmax_xent_loss.item():.6f}, "
+                    f"synsvg_nr_recloss: {synsvg_nr_out['rec_loss'].item():.6f}"
+                )
                 
-                img_sample = torch.cat((trg_img.data, output_img.data), -2)
-                #img_sample_nr = torch.cat((trg_img.data, nr_out["gen_imgs"].data), -2)
-                save_file = os.path.join(sample_dir, f"train_epoch_{epoch}_batch_{batches_done}.png")
-                #save_file_nr = os.path.join(sample_dir, f"train_epoch_{epoch}_batch_{batches_done}.nr.png")
-                save_image(img_sample, save_file, nrow=8, normalize=True)
-                #save_image(img_sample_nr, save_file_nr, nrow=8, normalize=True)        
-                
-            if opts.val_freq > 0 and batches_done % opts.val_freq == 0:
-                val_img_l1_loss = 0.0
-                val_img_pt_loss = 0.0
-                val_cmd_softmax_loss = 0.0
-                val_coord_mdn_loss = 0.0
-                val_synsvg_nr_rec_loss = 0.0
-                with torch.no_grad():
-                    for val_idx, val_data in enumerate(val_loader):
-                        val_img_decoder_out, val_vggpt_loss, val_kl_loss, val_svg_losses, val_trg_img, val_ref_img, val_trgsvg_nr_out, val_synsvg_nr_out = network_forward(val_data, mean, std, opts, network_modules)
-                        
-                        val_img_l1_loss += val_img_decoder_out['img_l1loss']
-                        val_img_pt_loss += val_vggpt_loss['pt_c_loss']
-                        val_cmd_softmax_loss += val_svg_losses['softmax_xent_loss']
-                        val_coord_mdn_loss += val_svg_losses['mdn_loss']
-                        val_synsvg_nr_rec_loss += val_synsvg_nr_out['rec_loss']
-
-                    val_img_l1_loss /= len(val_loader)
-                    val_img_pt_loss /= len(val_loader)
-                    val_cmd_softmax_loss /= len(val_loader) 
-                    val_coord_mdn_loss /= len(val_loader)
-                    val_synsvg_nr_rec_loss /= len(val_loader)
-
+                if batches_done % 50 == 0:
+                    logfile.write(message + '\n')
+                    print(message)
                     if opts.tboard:
-                        # writer.add_scalar('VAL/loss', val_loss, batches_done)
-                        writer.add_scalar('VAL/img_l1_loss', val_img_l1_loss, batches_done)
-                        writer.add_scalar('VAL/img_pt_loss', val_img_pt_loss, batches_done)
-                        writer.add_scalar('VAL/cmd_softmax_loss', val_cmd_softmax_loss, batches_done)
-                        writer.add_scalar('VAL/coord_mdn_loss', val_coord_mdn_loss, batches_done)
-                        writer.add_scalar('VAL/synsvg_nr_rec_loss', val_synsvg_nr_rec_loss, batches_done)                          
-                        # writer.add_scalar('VAL/b_loss', val_b_loss, batches_done)
+                        writer.add_scalar('Loss/loss', loss.item(), batches_done)
+                        writer.add_scalar('Loss/img_l1_loss', img_l1loss.item(), batches_done)
+                        writer.add_scalar('Loss/img_kl_loss', opts.kl_beta * kl_loss.item(), batches_done)
+                        writer.add_scalar('Loss/img_perceptual_loss', opts.pt_c_loss_w * vggpt_loss['pt_c_loss'], batches_done)
+                        writer.add_scalar('Loss/cmd_softmax_loss', softmax_xent_loss.item(), batches_done)
+                        writer.add_scalar('Loss/coord_mdn_loss', mdn_loss.item(), batches_done)
+                        writer.add_scalar('Loss/synsvg_nr_rec_loss', synsvg_nr_out['rec_loss'].item(), batches_done)
+                        writer.add_image('Images/trg_img', trg_img[0], batches_done)
+                        writer.add_image('Images/trgsvg_nr_img', trgsvg_nr_out['gen_imgs'][0], batches_done)
+                        writer.add_image('Images/synsvg_nr_img', synsvg_nr_out['gen_imgs'][0], batches_done)
+                        writer.add_image('Images/output_img', output_img[0], batches_done)
+                        '''
+                        for img_idx in range(52):
+                            writer.add_image('Images/src_img_' + "%02d"%img_idx, ref_img[0,img_idx:img_idx+1,:,:], batches_done)
+                        '''
 
-                    val_msg = (
-                        f"Epoch: {epoch}/{opts.n_epochs}, Batch: {idx}/{len(train_loader)}, "
-                        f"Val image l1 loss: {val_img_l1_loss: .6f}, "
-                        f"Val image pt loss: {val_img_pt_loss: .6f}, "
-                        f"Val cmd_softmax_loss loss: {val_cmd_softmax_loss: .6f}, "
-                        f"Val coord_mdn_loss loss: {val_coord_mdn_loss: .6f}, "
-                    )
+                if opts.sample_freq > 0 and batches_done % opts.sample_freq == 0:
+                    
+                    img_sample = torch.cat((trg_img.data, output_img.data), -2)
+                    #img_sample_nr = torch.cat((trg_img.data, nr_out["gen_imgs"].data), -2)
+                    save_file = os.path.join(sample_dir, f"train_epoch_{epoch}_batch_{batches_done}.png")
+                    #save_file_nr = os.path.join(sample_dir, f"train_epoch_{epoch}_batch_{batches_done}.nr.png")
+                    save_image(img_sample, save_file, nrow=8, normalize=True)
+                    #save_image(img_sample_nr, save_file_nr, nrow=8, normalize=True)        
+                    
+                if opts.val_freq > 0 and batches_done % opts.val_freq == 0:
+                    val_img_l1_loss = 0.0
+                    val_img_pt_loss = 0.0
+                    val_cmd_softmax_loss = 0.0
+                    val_coord_mdn_loss = 0.0
+                    val_synsvg_nr_rec_loss = 0.0
+                    with torch.no_grad():
+                        for val_idx, val_data in enumerate(val_loader):
+                            val_input_image = val_data['rendered'].to(device)
+                            val_input_sequence = val_data['sequence'].to(device)
+                            val_input_clss = val_data['class'].to(device)
+                            val_input_seqlen = val_data['seq_len'].to(device)
+                            val_trg_cls = torch.randint(0, opts.char_categories, (val_input_image.size(0), 1)).to(device) # bs, 1
+                            val_img_decoder_out, val_vggpt_loss, val_kl_loss, val_svg_losses, val_trg_img, val_ref_img, val_trgsvg_nr_out, val_synsvg_nr_out = \
+                                network_forward(val_input_image, val_input_sequence, val_input_clss, val_input_seqlen, val_trg_cls, mean, std, opts, network_modules)
+                            
+                            val_img_l1_loss += val_img_decoder_out['img_l1loss']
+                            val_img_pt_loss += val_vggpt_loss['pt_c_loss']
+                            val_cmd_softmax_loss += val_svg_losses['softmax_xent_loss']
+                            val_coord_mdn_loss += val_svg_losses['mdn_loss']
+                            val_synsvg_nr_rec_loss += val_synsvg_nr_out['rec_loss']
 
-                    val_logfile.write(val_msg + "\n")
-                    print(val_msg)
+                        val_img_l1_loss /= len(val_loader)
+                        val_img_pt_loss /= len(val_loader)
+                        val_cmd_softmax_loss /= len(val_loader) 
+                        val_coord_mdn_loss /= len(val_loader)
+                        val_synsvg_nr_rec_loss /= len(val_loader)
+
+                        if opts.tboard:
+                            # writer.add_scalar('VAL/loss', val_loss, batches_done)
+                            writer.add_scalar('VAL/img_l1_loss', val_img_l1_loss, batches_done)
+                            writer.add_scalar('VAL/img_pt_loss', val_img_pt_loss, batches_done)
+                            writer.add_scalar('VAL/cmd_softmax_loss', val_cmd_softmax_loss, batches_done)
+                            writer.add_scalar('VAL/coord_mdn_loss', val_coord_mdn_loss, batches_done)
+                            writer.add_scalar('VAL/synsvg_nr_rec_loss', val_synsvg_nr_rec_loss, batches_done)                          
+                            # writer.add_scalar('VAL/b_loss', val_b_loss, batches_done)
+
+                        val_msg = (
+                            f"Epoch: {epoch}/{opts.n_epochs}, Batch: {idx}/{len(train_loader)}, "
+                            f"Val image l1 loss: {val_img_l1_loss: .6f}, "
+                            f"Val image pt loss: {val_img_pt_loss: .6f}, "
+                            f"Val cmd_softmax_loss loss: {val_cmd_softmax_loss: .6f}, "
+                            f"Val coord_mdn_loss loss: {val_coord_mdn_loss: .6f}, "
+                        )
+
+                        val_logfile.write(val_msg + "\n")
+                        print(val_msg)
              
         if epoch % opts.ckpt_freq == 0:
             model_file_1 = os.path.join(ckpt_dir, f"{opts.model_name}_{epoch}.imgenc.pth")
@@ -220,27 +233,28 @@ def train_main_model(opts):
     val_logfile.close()
 
 
-def network_forward(data, mean, std, opts, network_moudules):
+def network_forward(input_image, input_sequence, input_clss, input_seqlen, trg_cls, mean, std, opts, network_moudules):
 
     img_encoder, img_decoder, modality_fusion, vggptlossfunc, svg_encoder, svg_decoder, mdn_top_layer, neural_rasterizer = network_moudules
 
-    input_image = data['rendered'].to(device) # bs, opts.char_categories, opts.image_size, opts.image_size
-    input_sequence = data['sequence'].to(device) 
-    input_clss = data['class'].to(device) # bs, opts.char_categories, 1
-    input_seqlen = data['seq_len'].to(device) # bs, opts.char_categories 1
+    # input_image = data['rendered'].to(device) # bs, opts.char_categories, opts.image_size, opts.image_size
+    # input_sequence = data['sequence'].to(device) 
+    # input_clss = data['class'].to(device) # bs, opts.char_categories, 1
+    # input_seqlen = data['seq_len'].to(device) # bs, opts.char_categories 1
     
     input_sequence = (input_sequence - mean) / std
     
     # randomly choose reference classes and target classes
-    if opts.ref_nshot == 1:
-        ref_cls = torch.randint(0, opts.char_categories, (input_image.size(0), opts.ref_nshot)).to(device)
-    else:
-        ref_cls_upper = torch.randint(0, opts.char_categories // 2, (input_image.size(0), opts.ref_nshot // 2)).to(device) # bs, 1
-        ref_cls_lower = torch.randint(opts.char_categories // 2, opts.char_categories, (input_image.size(0), opts.ref_nshot - opts.ref_nshot // 2)).to(device) # bs, 1
-        ref_cls = torch.cat((ref_cls_upper,ref_cls_lower), -1)
+    # if opts.ref_nshot == 1:
+    ref_cls = torch.randint(0, opts.char_categories, (input_image.size(0), opts.ref_nshot)).to(device)
+    # else:
+    #     ref_cls_upper = torch.randint(0, opts.char_categories // 2, (input_image.size(0), opts.ref_nshot // 2)).to(device) # bs, 1
+    #     ref_cls_lower = torch.randint(opts.char_categories // 2, opts.char_categories, (input_image.size(0), opts.ref_nshot - opts.ref_nshot // 2)).to(device) # bs, 1
+    #     ref_cls = torch.cat((ref_cls_upper,ref_cls_lower), -1)
     
     # the input reference images 
-    trg_cls = torch.randint(0, opts.char_categories, (input_image.size(0), 1)).to(device) # bs, 1
+    # trg_cls = torch.randint(0, opts.char_categories, (input_image.size(0), 1)).to(device) # bs, 1
+
     ref_cls_multihot = torch.zeros(input_image.size(0), opts.char_categories).to(device) # bs, 1
     for ref_id in range(0,opts.ref_nshot):
         ref_cls_multihot = torch.logical_or(ref_cls_multihot, util_funcs.trgcls_to_onehot(input_clss, ref_cls[:,ref_id:ref_id+1], opts))

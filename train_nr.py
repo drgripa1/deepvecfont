@@ -32,7 +32,7 @@ def train_nr_model(opts):
 
     neural_rasterizer = NeuralRasterizer(feature_dim=opts.seq_feature_dim, hidden_size=opts.hidden_size, num_hidden_layers=opts.num_hidden_layers, 
                                          ff_dropout_p=opts.ff_dropout, rec_dropout_p=opts.rec_dropout, input_nc = 2 * opts.hidden_size, 
-                                         output_nc=1, ngf=16, bottleneck_bits=opts.bottleneck_bits, norm_layer=nn.LayerNorm, n_blocks=6, mode='train')
+                                         output_nc=1, ngf=16, bottleneck_bits=opts.bottleneck_bits, norm_layer=nn.LayerNorm, mode='train')
     
     vggcxlossfunc = VGGContextualLoss()
 
@@ -53,7 +53,7 @@ def train_nr_model(opts):
     std = np.load('./data/stdev.npz')
     mean = torch.from_numpy(mean).to(device).to(torch.float32)
     std = torch.from_numpy(std).to(device).to(torch.float32)
-
+    N_STEP = 800
     for epoch in range(opts.init_epoch, opts.n_epochs):
 
         for idx, data in enumerate(train_loader):
@@ -63,39 +63,41 @@ def train_nr_model(opts):
             input_sequence = (input_sequence - mean) / std
             input_seqlen = data['seq_len'].to(device) # bs, opts.char_categories 1
             input_clss = data['class'].to(device) # bs, opts.char_categories, 1
-            trg_cls = torch.randint(0, opts.char_categories, (input_image.size(0), 1)).to(device) # bs, 1
-            # randomly select a target vector glyph
-            trg_seq = util_funcs.select_seqs(input_sequence, trg_cls, opts)
-            trg_seq = trg_seq.squeeze(1)
-            trg_char = util_funcs.trgcls_to_onehot(input_clss, trg_cls, opts)
-            # randomly select a target glyph image and svg
-            trg_img = util_funcs.select_imgs(input_image, trg_cls, opts)
-            gt_trg_seq = trg_seq.clone().detach()
-            trg_seq = trg_seq.transpose(0,1) # seqlen, bs ,feat_dim
-            # run the neural_rasterizer
-            nr_out = neural_rasterizer(trg_seq, trg_char, trg_img)
+            import pdb; pdb.set_trace()
+            for i in range(N_STEP):
+                trg_cls = torch.randint(0, opts.char_categories, (input_image.size(0), 1)).to(device) # bs, 1
+                # randomly select a target vector glyph
+                trg_seq = util_funcs.select_seqs(input_sequence, trg_cls, opts)
+                trg_seq = trg_seq.squeeze(1)
+                trg_char = util_funcs.trgcls_to_onehot(input_clss, trg_cls, opts)
+                # randomly select a target glyph image and svg
+                trg_img = util_funcs.select_imgs(input_image, trg_cls, opts)
+                gt_trg_seq = trg_seq.clone().detach()
+                trg_seq = trg_seq.transpose(0,1) # seqlen, bs ,feat_dim
+                # run the neural_rasterizer
+                nr_out = neural_rasterizer(trg_seq, trg_char, trg_img)
 
-            output_img = nr_out['gen_imgs']
-            rec_loss = nr_out['rec_loss']
-            vggcx_loss = vggcxlossfunc(nr_out['gen_imgs'], trg_img)
-            loss = opts.l1_loss_w * nr_out['rec_loss'] + opts.cx_loss_w * vggcx_loss['cx_loss']
+                output_img = nr_out['gen_imgs']
+                rec_loss = nr_out['rec_loss']
+                vggcx_loss = vggcxlossfunc(nr_out['gen_imgs'], trg_img)
+                loss = opts.l1_loss_w * nr_out['rec_loss'] + opts.cx_loss_w * vggcx_loss['cx_loss']
 
-            # perform optimization
-            optimizer.zero_grad()
-            loss.backward()
+                # perform optimization
+                optimizer.zero_grad()
+                loss.backward()
 
-            optimizer.step()
-            batches_done = epoch * len(train_loader) + idx + 1
+                optimizer.step()
+                batches_done = epoch * len(train_loader) * N_STEP + idx * N_STEP + i + 1
 
-            message = (
-                f"Epoch: {epoch}/{opts.n_epochs}, Batch: {idx}/{len(train_loader)}, "
-                f"Loss: {loss.item():.6f}, "
-                f"img_l1_loss: {rec_loss.item():.6f}, "
-                f"img_cx_loss: {opts.cx_loss_w * vggcx_loss['cx_loss']:.6f}, "
-            )
-            logfile.write(message + '\n')
-            if batches_done % 50 == 0:
-                print(message)
+                message = (
+                    f"Epoch: {epoch}/{opts.n_epochs}, Batch: {idx * N_STEP + i}/{len(train_loader) * N_STEP}, "
+                    f"Loss: {loss.item():.6f}, "
+                    f"img_l1_loss: {rec_loss.item():.6f}, "
+                    f"img_cx_loss: {opts.cx_loss_w * vggcx_loss['cx_loss']:.6f}, "
+                )
+                logfile.write(message + '\n')
+                if batches_done % 50 == 0:
+                    print(message)
 
             if opts.tboard:
                 writer.add_scalar('Loss/loss', loss.item(), batches_done)

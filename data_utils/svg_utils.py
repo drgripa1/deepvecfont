@@ -67,6 +67,12 @@ def _map_uni_to_alpha(uni):
     return uni - 97 + 26
 
 
+def _map_uni_k_to_alpha(uni):
+    """Maps kanji to indices."""
+    alphabet_chars = '一丁七万三上下不中久乗九乱乳予事二亡交京人仁仏仕他代以仮件任休会伝似位低住体何余作使例供価便係保修俳俵倉個倍候値停側傷働像億優元兄兆先児党入公六共兵具典内円写冬冷処出刀分刊初判別利制刷券刻則前副割劇力功加助努労効勇勉動勝勤包化北区医十千午卒協南単印危厚原厳去参友反収取受古句史号司合同后向君否吸告周味呼品員唱問喜営器四回因団囲図固国園圧在坂均型域基堂場塩境墓増士声変夏夕外夜夢大天太夫央奏女好妹妻姉委姿婦子存孝季学孫宅宇守完宗官客宣宮害家宿寄密寒寸寺対射将尊導少尺局居届屋属層山岸島川州巣工差己巻布希師帯帰帳常幕平年幹庁広序店府度庫庭康延建弁式弓引弟弱張強当形役往後徒従得復徳心必志忘応忠念思急性恩息悪悲情想意愛感態我戦戸手打批技投折担招拝拡拾持指挙捨授採接推提損操改放救教散敬整敵新方族旗日旧明易昔星映春昨昭時晩晴暖暗暮暴曜曲書最月有望朝期木未末本机材村束条来東松板林枚果枝柱査栄校株格桜梅械棒森植極楽構様模権橋機次欲歌止正武歯歴死残段殺母毎毒比毛氏民気水永池汽河油治沿泉法波泣注泳洋洗活派流浅浴海消液深混清済減温港湯源準演漢潔潮激火灯灰災炭点無然焼熟熱燃父片版牛牧物特犬犯状独率王班球理生産田由申男画界畑留番異疑病痛登白百的皇皮皿益盛目直省看真眼着矢知石砂研破確磁示礼社祖祝票禁福私秋科秒秘程種積穴究空窓立章童競竹笑笛第筆等筋算管節簡米粉精糖糸系紀紅納純紙級素細終組経結給統絶絹綿緑線編練縦縮績織罪置署羊群義翌習老考者耳聖聞肉育肺胃背胸能脈脳腸臓臣臨自至興舌舎船良色花芸芽若苦英荷菜落葉著蒸蔵蚕血衆衛衣表裁裏補製複要見規覚覧親観角計訓記訪設訳証評詞試詩誌認誕語誠誤説読課調談諸謝警議豆象貝負財貧買貸費貿賀賃資賛賞質赤走起足路身車軽輪辞農近返迷退送逆通速造週運過道達遠選郡部郵郷都配酒酸重野金針鉄銀銅銭鏡長閉間関閣防降限陛院除陸険隊際集雪雲青非面革音頂預頭題額顔願類風飛食飯飲飼館駅骨高魚鳥鳴麦黒鼻'
+    return alphabet_chars.index(chr(uni))
+
+
 ############# UTILS FOR CONVERTING SFD/SPLINESETS TO SVG PATHS ################
 def _get_spline(sfd):
     if 'SplineSet' not in sfd:
@@ -911,9 +917,12 @@ def is_valid_glyph(g):
     is_valid_dims = g['width'] != 0 and g['vwidth'] != 0
     return (is_09 or is_capital_az or is_az) and is_valid_dims
 
+def is_valid_glyph_wouni(g):
+    is_valid_dims = g['width'] != 0 and g['vwidth'] != 0
+    return is_valid_dims
 
-def is_valid_path(pathunibfp):
-    return pathunibfp[0] and len(pathunibfp[0]) <= 50
+def is_valid_path(pathunibfp, max_len=50):
+    return pathunibfp[0] and len(pathunibfp[0]) <= max_len
 
 
 ################### DATASET PROCESSING #######################################
@@ -925,7 +934,7 @@ def convert_to_path(g):
     return path, g['uni'], g['binary_fp']
 
 
-def create_example(pathunibfp):
+def create_example(pathunibfp, max_len=50):
     """Bulk of dataset processing. Converts str path to np array"""
     path, uni, binary_fp = pathunibfp
     final = {}
@@ -949,19 +958,20 @@ def create_example(pathunibfp):
     # count some stats
     final['seq_len'] = np.shape(vector)[0]
     # final['class'] = int(_map_uni_to_alphanum(uni))
-    final['class'] = int(_map_uni_to_alpha(uni))
+    # final['class'] = int(_map_uni_to_alpha(uni))
+    final['class'] = int(_map_uni_k_to_alpha(uni))
     final['binary_fp'] = str(binary_fp)
 
     # append eos
     vector = _append_eos(vector.tolist(), True, 10)
 
-    # pad path to 51 (with eos)
-    final['sequence'] = np.concatenate((vector, np.zeros(((50 - final['seq_len']), 10))), 0)
+    # pad path to max_len+1 (with eos)
+    final['sequence'] = np.concatenate((vector, np.zeros(((max_len - final['seq_len']), 10))), 0)
 
     # make pure list:
     # use last channel only
     final['rendered'] = np.reshape(final['rendered'][..., 0], [64 * 64]).astype(np.float32).tolist()
-    final['sequence'] = np.reshape(final['sequence'], [51 * 10]).astype(np.float32).tolist()
+    final['sequence'] = np.reshape(final['sequence'], [(max_len+1) * 10]).astype(np.float32).tolist()
     final['class'] = np.reshape(final['class'], [1]).astype(np.int64).tolist()
     final['seq_len'] = np.reshape(final['seq_len'], [1]).astype(np.int64).tolist()
     return final

@@ -7,13 +7,13 @@ def get_parser_main_model():
     # TODO: basic parameters training related
     parser.add_argument('--model_name', type=str, default='main_model', choices=['main_model', 'neural_raster'], help='current model_name')
     parser.add_argument('--bottleneck_bits', type=int, default=128, help='latent code number of bottleneck bits')
-    parser.add_argument('--char_categories', type=int, default=52, help='number of glyphs, original is 52')
+    parser.add_argument('--char_categories', type=int, default=800, help='number of glyphs, original is 52')
     parser.add_argument('--ref_nshot', type=int, default=4, help='reference number')    
     parser.add_argument('--in_channel', type=int, default=1, help='input image channel')
     parser.add_argument('--out_channel', type=int, default=1, help='output image channel')
     parser.add_argument('--batch_size', type=int, default=64, help='batch size')
     parser.add_argument('--image_size', type=int, default=64, help='image size')
-    parser.add_argument('--max_seq_len', type=int, default=51, help='maximum length of sequence')
+    parser.add_argument('--max_seq_len', type=int, default=251, help='maximum length of sequence')
     parser.add_argument('--seq_feature_dim', type=int, default=10,
                         help='feature dim (like vocab size) of one step of sequence feature')
     # experiment related

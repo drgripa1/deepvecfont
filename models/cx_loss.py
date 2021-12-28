@@ -16,8 +16,9 @@ class CXLoss(nn.Module):
 
     def l2_normalize_channelwise(self, features):
         # Normalize on channel dimension (axis=1)
+        eps = 1e-6
         norms = features.norm(p=2, dim=1, keepdim=True)
-        features = features.div(norms)
+        features = features.div(norms + eps)
         return features
 
     def patch_decomposition(self, features):
@@ -71,6 +72,7 @@ class CXLoss(nn.Module):
         dist = torch.cat(dist, dim=0)
 
         raw_dist = (1. - dist) / 2.
+        raw_dist = raw_dist.clip(min=0)
 
         relative_dist = self.calc_relative_distances(raw_dist)
 
@@ -80,4 +82,6 @@ class CXLoss(nn.Module):
         CX = CX.mean(1)
         CX = -torch.log(CX)
         CX = torch.mean(CX)
+        if torch.isnan(CX):
+            import pdb; pdb.set_trace()
         return CX
